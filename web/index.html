@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <!--
+    In some port-forwarded/dev environments, the Flutter tool does not replace
+    $FLUTTER_BASE_HREF when serving via the web-server device. That breaks
+    relative asset URLs (e.g. flutter_bootstrap.js) and results in a blank page.
+    For the MVP, we serve from the root, so keep this as "/".
+  -->
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="air_time_manager">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>air_time_manager</title>
+  <!--
+    NOTE (dev): In Codespaces / port-forwarded environments a private port can
+    redirect manifest.json requests to a GitHub sign-in endpoint, which then
+    fails with CORS in the browser console. The manifest is not required for
+    running the MVP in debug, so we keep it disabled.
+    Re-enable when hosting publicly / for PWA installability.
+  -->
+  <!-- <link rel="manifest" href="manifest.json"> -->
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
