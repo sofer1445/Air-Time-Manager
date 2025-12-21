@@ -1,4 +1,6 @@
 import 'package:air_time_manager/features/teams/widgets/team_card.dart';
+import 'package:air_time_manager/features/teams/widgets/add_team_dialog.dart';
+import 'package:air_time_manager/features/teams/widgets/add_member_dialog.dart';
 import 'package:air_time_manager/app/app_scope.dart';
 import 'package:air_time_manager/common/formatters/duration_format.dart';
 import 'package:air_time_manager/data/models/member.dart';
@@ -22,9 +24,24 @@ class TeamsScreen extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Text(
-              'פיקוח צוותים באירוע',
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'פיקוח צוותים באירוע',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await showDialog(
+                      context: context,
+                      builder: (_) => const AddTeamDialog(),
+                    );
+                  },
+                  icon: const Icon(Icons.add),
+                  label: const Text('הוסף צוות'),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             for (final team in teams) ...[
@@ -32,10 +49,23 @@ class TeamsScreen extends StatelessWidget {
                 stream: repo.watchMembers(teamId: team.id),
                 builder: (context, membersSnapshot) {
                   final count = membersSnapshot.data?.length;
-                  final membersText = count == null ? null : 'חברים: $count';
+                  final membersText = count == null ? null : 'לוחמים: $count';
 
                   final primaryActionText = StepFsm.primaryLabel(team.currentStep);
                   final canUndo = team.currentStep != null;
+                  
+                  // קביעת סטטוס וצבע לפי שלב נוכחי
+                  String? statusText;
+                  Color? statusColor;
+                  String? icon;
+                  
+                  if (team.currentStep != null) {
+                    statusText = StepFsm.label(team.currentStep!);
+                    icon = null; // נשתמש בזה בעתיד עם StepType
+                    statusColor = team.isRunning
+                        ? Colors.green
+                        : Colors.orange;
+                  }
 
                   return TeamCard(
                     model: TeamCardModel(
@@ -43,10 +73,23 @@ class TeamsScreen extends StatelessWidget {
                       timerText: formatDurationHms(team.timer),
                       membersText: membersText,
                       primaryActionText: primaryActionText,
+                      statusText: statusText,
+                      statusColor: statusColor,
+                      icon: icon,
+                      canUndo: canUndo,
                       onPrimaryAction: () {
                         repo.advanceTeamStep(teamId: team.id);
                       },
-                      onUndo: canUndo ? () => repo.undoTeamStep(teamId: team.id) : null,
+                      onUndo: () => repo.undoTeamStep(teamId: team.id),
+                      onAddMember: () async {
+                        await showDialog(
+                          context: context,
+                          builder: (_) => AddMemberDialog(
+                            teamId: team.id,
+                            teamName: team.name,
+                          ),
+                        );
+                      },
                     ),
                   );
                 },

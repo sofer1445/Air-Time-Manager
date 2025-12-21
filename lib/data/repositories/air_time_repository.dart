@@ -26,6 +26,38 @@ abstract class AirTimeRepository {
 
   Stream<Parameters> watchParameters();
 
+  // Event management
+  Future<void> createEvent({
+    required String name,
+    required Duration minWashingTime,
+    required int minPressureBar,
+    required Duration alertThreshold,
+  });
+
+  Future<void> setCurrentEvent({required String eventId});
+
+  // Team management
+  Future<void> addTeam({
+    required String name,
+    Duration? initialTimer,
+  });
+
+  Future<void> removeTeam({required String teamId});
+
+  // Member management
+  Future<void> addMember({
+    required String teamId,
+    required String name,
+    required Duration totalTime,
+  });
+
+  Future<void> removeMember({required String memberId});
+
+  Future<void> updateMemberTime({
+    required String memberId,
+    required Duration newTotalTime,
+  });
+
   // Local functionality now (Firestore later): team-level timer controls.
   Future<void> toggleTeamTimer({required String teamId});
 

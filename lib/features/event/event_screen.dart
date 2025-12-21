@@ -1,6 +1,8 @@
 import 'package:air_time_manager/features/event/widgets/status_cards.dart';
 import 'package:air_time_manager/features/teams/teams_screen.dart';
+import 'package:air_time_manager/features/reports/reports_screen.dart';
 import 'package:air_time_manager/app/app_scope.dart';
+import 'package:air_time_manager/services/alert_service.dart';
 import 'package:air_time_manager/common/formatters/duration_format.dart';
 import 'package:air_time_manager/data/models/air_log.dart';
 import 'package:air_time_manager/data/models/event.dart';
@@ -8,8 +10,33 @@ import 'package:air_time_manager/data/models/event_summary.dart';
 import 'package:air_time_manager/data/models/step.dart';
 import 'package:flutter/material.dart';
 
-class EventScreen extends StatelessWidget {
+class EventScreen extends StatefulWidget {
   const EventScreen({super.key});
+
+  @override
+  State<EventScreen> createState() => _EventScreenState();
+}
+
+class _EventScreenState extends State<EventScreen> {
+  AlertService? _alertService;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_alertService == null) {
+      _alertService = AlertService(
+        repo: AppScope.of(context).repo,
+        context: context,
+      );
+      _alertService!.start();
+    }
+  }
+
+  @override
+  void dispose() {
+    _alertService?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -18,52 +45,135 @@ class EventScreen extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('ניהול זמן אוויר'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.assessment),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ReportsScreen(),
+                  ),
+                );
+              },
+              tooltip: 'דוחות וסטטיסטיקות',
+            ),
+          ],
           bottom: const TabBar(
             tabs: [
-              Tab(text: 'פרטי אירוע'),
-              Tab(text: 'צוותים'),
+              Tab(text: 'פרטי אירוע', icon: Icon(Icons.event)),
+              Tab(text: 'צוותים', icon: Icon(Icons.groups)),
             ],
           ),
         ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: StreamBuilder<EventSummary>(
-                  stream: AppScope.of(context).repo.watchEventSummary(),
-                  builder: (context, snapshot) {
-                    final summary = snapshot.data;
-                    final alertsCount = summary?.alertsCount ?? 0;
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final isTablet = constraints.maxWidth >= 900;
+            
+            if (isTablet) {
+              // Tablet layout - side by side
+              return SafeArea(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: StreamBuilder<EventSummary>(
+                        stream: AppScope.of(context).repo.watchEventSummary(),
+                        builder: (context, snapshot) {
+                          final summary = snapshot.data;
+                          final alertsCount = summary?.alertsCount ?? 0;
 
-                    return Column(
-                      children: [
-                        if (alertsCount > 0) ...[
-                          _AlertsBanner(alertsCount: alertsCount),
-                          const SizedBox(height: 12),
+                          return Column(
+                            children: [
+                              if (alertsCount > 0) ...[
+                                _AlertsBanner(alertsCount: alertsCount),
+                                const SizedBox(height: 12),
+                              ],
+                              StatusCardsRow(
+                                remainingTime: summary == null
+                                    ? '--:--:--'
+                                    : formatDurationHms(summary.remainingTime),
+                                requiredExitTime: summary == null
+                                    ? '--:--'
+                                    : summary.requiredExitTime.format(context),
+                                alertsCount: alertsCount,
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            flex: 1,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  left: BorderSide(
+                                    color: Theme.of(context).dividerColor,
+                                  ),
+                                ),
+                              ),
+                              child: const _EventDetailsTab(),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: const TeamsScreen(),
+                          ),
                         ],
-                        StatusCardsRow(
-                          remainingTime: summary == null
-                              ? '--:--:--'
-                              : formatDurationHms(summary.remainingTime),
-                          requiredExitTime: summary == null
-                              ? '--:--'
-                              : summary.requiredExitTime.format(context),
-                          alertsCount: alertsCount,
-                        ),
-                      ],
-                    );
-                  },
+                      ),
+                    ),
+                  ],
                 ),
+              );
+            }
+
+            // Phone layout - tabs
+            return SafeArea(
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: StreamBuilder<EventSummary>(
+                      stream: AppScope.of(context).repo.watchEventSummary(),
+                      builder: (context, snapshot) {
+                        final summary = snapshot.data;
+                        final alertsCount = summary?.alertsCount ?? 0;
+
+                        return Column(
+                          children: [
+                            if (alertsCount > 0) ...[
+                              _AlertsBanner(alertsCount: alertsCount),
+                              const SizedBox(height: 12),
+                            ],
+                            StatusCardsRow(
+                              remainingTime: summary == null
+                                  ? '--:--:--'
+                                  : formatDurationHms(summary.remainingTime),
+                              requiredExitTime: summary == null
+                                  ? '--:--'
+                                  : summary.requiredExitTime.format(context),
+                              alertsCount: alertsCount,
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  const Expanded(
+                    child: TabBarView(
+                      children: [_EventDetailsTab(), TeamsScreen()],
+                    ),
+                  ),
+                ],
               ),
-              const Divider(height: 1),
-              const Expanded(
-                child: TabBarView(
-                  children: [_EventDetailsTab(), TeamsScreen()],
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

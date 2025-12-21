@@ -1,7 +1,7 @@
 import 'package:air_time_manager/app/app_scope.dart';
 import 'package:air_time_manager/app/theme/app_theme.dart';
 import 'package:air_time_manager/data/repositories/air_time_repository.dart';
-import 'package:air_time_manager/features/event/event_screen.dart';
+import 'package:air_time_manager/features/event/event_selection_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -36,7 +36,7 @@ class _AirTimeManagerAppState extends State<AirTimeManagerApp> {
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
         ],
-        home: const EventScreen(),
+        home: const EventSelectionScreen(),
       ),
     );
   }

@@ -404,7 +404,7 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
     return _parametersRef('current').snapshots().map((snap) {
       final data = snap.data() ?? const <String, dynamic>{};
       return Parameters(
-        minWashingDuration: Duration(
+        minWashingTime: Duration(
           seconds: (data['minWashingSeconds'] as num?)?.toInt() ?? 300,
         ),
         minPressureBar: (data['minPressureBar'] as num?)?.toInt() ?? 200,
@@ -540,7 +540,7 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
 
       tx.update(teamRef, {
         'undoStep': currentStepStr,
-        'currentStep': StepFsm.toFirestore(next),
+        'currentStep': next != null ? StepFsm.toFirestore(next) : 'start',
         'isRunning': shouldRun,
         'runningSince': shouldRun ? FieldValue.serverTimestamp() : null,
         'timerSeconds': nextTimerSeconds,
@@ -554,7 +554,7 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
     final stepRef = _stepsCol(_defaultEventId).doc();
     await stepRef.set({
       'teamId': teamId,
-      'type': currentStepStr ?? StepFsm.toFirestore(StepFsm.next(null)),
+      'type': currentStepStr ?? StepFsm.toFirestore(StepFsm.next(null)!),
       'createdAt': FieldValue.serverTimestamp(),
     });
     await _appendAirLog(teamId: teamId, note: 'advance step (mvp)');
@@ -598,6 +598,127 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
       'note': note,
       'createdAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  @override
+  Future<void> createEvent({
+    required String name,
+    required Duration minWashingTime,
+    required int minPressureBar,
+    required Duration alertThreshold,
+  }) async {
+    await ensureSignedIn();
+    final now = DateTime.now();
+    final eventId = 'event_${now.millisecondsSinceEpoch}';
+    
+    final batch = _firestore.batch();
+    
+    // Create event
+    batch.set(_eventRef(eventId), {
+      'name': name,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    
+    // Set parameters
+    batch.set(_parametersRef(eventId), {
+      'minWashingSeconds': minWashingTime.inSeconds,
+      'minPressureBar': minPressureBar,
+      'alertThresholdSeconds': alertThreshold.inSeconds,
+    });
+    
+    await batch.commit();
+  }
+
+  @override
+  Future<void> setCurrentEvent({required String eventId}) async {
+    // In Firestore version, we would update a user preference doc
+    // For now, this is a no-op since we use a default event
+  }
+
+  @override
+  Future<void> addTeam({
+    required String name,
+    Duration? initialTimer,
+  }) async {
+    await ensureSignedIn();
+    final timer = initialTimer ?? Duration.zero;
+    await _teamsCol(_defaultEventId).add({
+      'name': name,
+      'timerSeconds': timer.inSeconds,
+      'isRunning': false,
+      'runningSince': null,
+      'undoTimerSeconds': null,
+      'currentStep': null,
+      'undoStep': null,
+    });
+  }
+
+  @override
+  Future<void> removeTeam({required String teamId}) async {
+    await ensureSignedIn();
+    final batch = _firestore.batch();
+    
+    // Delete team
+    batch.delete(_teamsCol(_defaultEventId).doc(teamId));
+    
+    // Delete all members of the team
+    final membersSnap = await _membersCol(_defaultEventId, teamId).get();
+    for (final doc in membersSnap.docs) {
+      batch.delete(doc.reference);
+    }
+    
+    await batch.commit();
+  }
+
+  @override
+  Future<void> addMember({
+    required String teamId,
+    required String name,
+    required Duration totalTime,
+  }) async {
+    await ensureSignedIn();
+    await _membersCol(_defaultEventId, teamId).add({
+      'name': name,
+      'totalSeconds': totalTime.inSeconds,
+      'remainingSeconds': totalTime.inSeconds,
+    });
+  }
+
+  @override
+  Future<void> removeMember({required String memberId}) async {
+    await ensureSignedIn();
+    // We need to find which team this member belongs to
+    // For simplicity, we'll search through all teams
+    final teams = await _teamsCol(_defaultEventId).get();
+    for (final teamDoc in teams.docs) {
+      final memberRef = _membersCol(_defaultEventId, teamDoc.id).doc(memberId);
+      final memberSnap = await memberRef.get();
+      if (memberSnap.exists) {
+        await memberRef.delete();
+        return;
+      }
+    }
+  }
+
+  @override
+  Future<void> updateMemberTime({
+    required String memberId,
+    required Duration newTotalTime,
+  }) async {
+    await ensureSignedIn();
+    // Find the member and update
+    final teams = await _teamsCol(_defaultEventId).get();
+    for (final teamDoc in teams.docs) {
+      final memberRef = _membersCol(_defaultEventId, teamDoc.id).doc(memberId);
+      final memberSnap = await memberRef.get();
+      if (memberSnap.exists) {
+        await memberRef.update({
+          'totalSeconds': newTotalTime.inSeconds,
+          'remainingSeconds': newTotalTime.inSeconds,
+        });
+        return;
+      }
+    }
   }
 
   @override

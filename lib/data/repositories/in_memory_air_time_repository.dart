@@ -76,7 +76,7 @@ class InMemoryAirTimeRepository implements AirTimeRepository {
   ];
 
   final Parameters _parameters = const Parameters(
-    minWashingDuration: Duration(minutes: 5),
+    minWashingTime: Duration(minutes: 5),
     minPressureBar: 200,
     maxPressureBar: 300,
   );
@@ -236,13 +236,14 @@ class InMemoryAirTimeRepository implements AirTimeRepository {
       DateTime.now().add(remainingTime),
     );
     final alertsCount = _teams
-        .where((t) => t.timer <= _parameters.minWashingDuration)
+        .where((t) => t.timer <= _parameters.alertThreshold)
         .length;
 
     return EventSummary(
       remainingTime: remainingTime,
       requiredExitTime: requiredExitTime,
       alertsCount: alertsCount,
+      alertThreshold: _parameters.alertThreshold,
     );
   }
 
@@ -529,13 +530,13 @@ class InMemoryAirTimeRepository implements AirTimeRepository {
         id: 's$_stepSeq',
         eventId: _currentEvent.id,
         teamId: teamId,
-        type: nextStep,
+        type: nextStep!,
         createdAt: DateTime.now(),
       ),
     );
     _stepSeq++;
 
-    _appendAirLog(teamId: teamId, note: 'צעד: ${StepFsm.label(nextStep)}');
+    _appendAirLog(teamId: teamId, note: 'צעד: ${StepFsm.label(nextStep!)}');
 
     _emitTeams();
     _membersController.add(List.unmodifiable(_members));
@@ -577,6 +578,195 @@ class InMemoryAirTimeRepository implements AirTimeRepository {
     _membersController.add(List.unmodifiable(_members));
     _appendAirLog(teamId: teamId, note: 'בטל צעד (דמו)');
     _emitTeams();
+    _emitEventSummaryIfChanged();
+  }
+
+  @override
+  Future<void> createEvent({
+    required String name,
+    required Duration minWashingTime,
+    required int minPressureBar,
+    required Duration alertThreshold,
+  }) async {
+    final now = DateTime.now();
+    final newEvent = Event(
+      id: 'event_${now.millisecondsSinceEpoch}',
+      name: name,
+      createdAt: now,
+    );
+    _events.add(newEvent);
+    _eventsController.add(List.unmodifiable(_events));
+
+    // Update current event
+    _currentEventController.add(newEvent);
+
+    // Update parameters
+    final newParams = Parameters(
+      minWashingTime: minWashingTime,
+      minPressureBar: minPressureBar,
+      maxPressureBar: 300,
+      alertThreshold: alertThreshold,
+    );
+    _parametersController.add(newParams);
+
+    // Reset teams and members for new event
+    _teams.clear();
+    _members.clear();
+    _steps.clear();
+    _airLogs.clear();
+
+    // Add initial step
+    _steps.add(EventStep(
+      id: 's_${_stepSeq++}',
+      eventId: newEvent.id,
+      teamId: null,
+      type: EventStepType.start,
+      createdAt: now,
+    ));
+
+    _teamsController.add(List.unmodifiable(_teams));
+    _membersController.add(List.unmodifiable(_members));
+    _stepsController.add(List.unmodifiable(_steps));
+    _airLogsController.add(List.unmodifiable(_airLogs));
+    _emitEventSummaryIfChanged();
+  }
+
+  @override
+  Future<void> setCurrentEvent({required String eventId}) async {
+    final event = _events.firstWhere((e) => e.id == eventId);
+    _currentEventController.add(event);
+  }
+
+  @override
+  Future<void> addTeam({
+    required String name,
+    Duration? initialTimer,
+  }) async {
+    final teamId = 'team_${DateTime.now().millisecondsSinceEpoch}';
+    final team = Team(
+      id: teamId,
+      name: name,
+      timer: initialTimer ?? Duration.zero,
+      currentStep: null,
+    );
+    _teams.add(team);
+    _teamsController.add(List.unmodifiable(_teams));
+    _emitEventSummaryIfChanged();
+  }
+
+  @override
+  Future<void> removeTeam({required String teamId}) async {
+    _teams.removeWhere((t) => t.id == teamId);
+    _members.removeWhere((m) => m.teamId == teamId);
+    _teamsController.add(List.unmodifiable(_teams));
+    _membersController.add(List.unmodifiable(_members));
+    _emitEventSummaryIfChanged();
+  }
+
+  @override
+  Future<void> addMember({
+    required String teamId,
+    required String name,
+    required Duration totalTime,
+  }) async {
+    final memberId = 'm_${DateTime.now().millisecondsSinceEpoch}';
+    final member = Member(
+      id: memberId,
+      teamId: teamId,
+      name: name,
+      remainingTime: totalTime,
+      totalTime: totalTime,
+    );
+    _members.add(member);
+    _membersController.add(List.unmodifiable(_members));
+
+    // Update team timer to be minimum of all members
+    final teamIndex = _teams.indexWhere((t) => t.id == teamId);
+    if (teamIndex >= 0) {
+      final teamMembers = _members.where((m) => m.teamId == teamId);
+      final minTime = _minDurationOrZero(
+        teamMembers.map((m) => m.remainingTime).toList(),
+      );
+      final team = _teams[teamIndex];
+      _teams[teamIndex] = Team(
+        id: team.id,
+        name: team.name,
+        timer: minTime,
+        isRunning: team.isRunning,
+        currentStep: team.currentStep,
+      );
+      _teamsController.add(List.unmodifiable(_teams));
+    }
+
+    _emitEventSummaryIfChanged();
+  }
+
+  @override
+  Future<void> removeMember({required String memberId}) async {
+    final member = _members.firstWhere((m) => m.id == memberId);
+    final teamId = member.teamId;
+
+    _members.removeWhere((m) => m.id == memberId);
+    _membersController.add(List.unmodifiable(_members));
+
+    // Update team timer
+    final teamIndex = _teams.indexWhere((t) => t.id == teamId);
+    if (teamIndex >= 0) {
+      final teamMembers = _members.where((m) => m.teamId == teamId);
+      final minTime = _minDurationOrZero(
+        teamMembers.map((m) => m.remainingTime).toList(),
+      );
+      final team = _teams[teamIndex];
+      _teams[teamIndex] = Team(
+        id: team.id,
+        name: team.name,
+        timer: minTime,
+        isRunning: team.isRunning,
+        currentStep: team.currentStep,
+      );
+      _teamsController.add(List.unmodifiable(_teams));
+    }
+
+    _emitEventSummaryIfChanged();
+  }
+
+  @override
+  Future<void> updateMemberTime({
+    required String memberId,
+    required Duration newTotalTime,
+  }) async {
+    final index = _members.indexWhere((m) => m.id == memberId);
+    if (index < 0) return;
+
+    final member = _members[index];
+    _members[index] = Member(
+      id: member.id,
+      teamId: member.teamId,
+      name: member.name,
+      remainingTime: newTotalTime,
+      totalTime: newTotalTime,
+    );
+    _membersController.add(List.unmodifiable(_members));
+
+    // Update team timer
+    final teamId = member.teamId;
+    final teamIndex = _teams.indexWhere((t) => t.id == teamId);
+    if (teamIndex >= 0) {
+      final teamMembers = _members.where((m) => m.teamId == teamId);
+      final minTime = _minDurationOrZero(
+        teamMembers.map((m) => m.remainingTime).toList(),
+      );
+      final team = _teams[teamIndex];
+      _teams[teamIndex] = Team(
+        id: team.id,
+        name: team.name,
+        timer: minTime,
+        isRunning: team.isRunning,
+        currentStep: team.currentStep,
+      );
+      _teamsController.add(List.unmodifiable(_teams));
+    }
+
     _emitEventSummaryIfChanged();
   }
 }
