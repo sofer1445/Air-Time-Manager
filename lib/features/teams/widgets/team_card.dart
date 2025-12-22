@@ -116,7 +116,10 @@ class TeamCard extends StatelessWidget {
                     horizontal: isTablet ? 32 : 16,
                   ),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primaryContainer
+                        .withValues(alpha: 77),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Center(

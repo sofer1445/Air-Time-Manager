@@ -60,33 +60,15 @@ class StepFsm {
 
   /// האם הטיימר צריך לרוץ בשלב זה
   /// 
-  /// - entry: כן (זמן עבודה)
-  /// - arrival: כן (זמן עבודה)
-  /// - exit: לא (בדרך חזרה)
-  /// - washStart: לא (שוטפים)
-  /// - washEnd: לא (סיימו)
+  /// במודל הנוכחי של האפליקציה: הטיימר רץ בכל שלב פעולה.
+  /// כלומר מרגע שמתחילים (כניסה) ועד שמסיימים את הפעולה הנוכחית.
   static bool shouldRunTimer(EventStepType? step) {
-    if (step == null) return false;
-
-    return switch (step) {
-      EventStepType.start => true,
-      EventStepType.arrive => true,
-      EventStepType.exit => false,
-      EventStepType.washing => false,
-    };
+    return step != null;
   }
 
   /// האם הטיימר צריך לרוץ (גרסה חדשה)
   static bool shouldRunTimerForStep(StepType? step) {
-    if (step == null) return false;
-
-    return switch (step) {
-      StepType.entry => true,
-      StepType.arrival => true,
-      StepType.exit => false,
-      StepType.washStart => false,
-      StepType.washEnd => false,
-    };
+    return step != null;
   }
 
   /// טקסט הכפתור הראשי
@@ -124,6 +106,17 @@ class StepFsm {
       EventStepType.arrive => 'במוקד',
       EventStepType.exit => 'בדרך חזרה',
       EventStepType.washing => 'שטיפה',
+    };
+  }
+
+  /// טקסט סטטוס לשלב (StepType)
+  static String statusLabelForStep(StepType step) {
+    return switch (step) {
+      StepType.entry => 'בזירה',
+      StepType.arrival => 'במוקד',
+      StepType.exit => 'בדרך חזרה',
+      StepType.washStart => 'שטיפה',
+      StepType.washEnd => 'מוכן לכניסה נוספת',
     };
   }
 

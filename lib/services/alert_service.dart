@@ -55,6 +55,7 @@ class AlertService {
           name: '',
           timer: Duration.zero,
           currentStep: null,
+          isRunning: false,
         ),
       );
       return team.timer > threshold;

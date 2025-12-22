@@ -3,7 +3,6 @@ import 'package:air_time_manager/common/formatters/duration_format.dart';
 import 'package:air_time_manager/data/models/air_log.dart';
 import 'package:air_time_manager/data/models/event.dart';
 import 'package:air_time_manager/data/models/member.dart';
-import 'package:air_time_manager/data/models/step.dart';
 import 'package:air_time_manager/data/models/team.dart';
 import 'package:flutter/material.dart';
 

@@ -51,8 +51,8 @@ class TeamsScreen extends StatelessWidget {
                   final count = membersSnapshot.data?.length;
                   final membersText = count == null ? null : 'לוחמים: $count';
 
-                  final primaryActionText = StepFsm.primaryLabel(team.currentStep);
-                  final canUndo = team.currentStep != null;
+                  final primaryActionText = StepFsm.buttonLabel(team.currentStep);
+                  final canUndo = StepFsm.canUndo(team.currentStep);
                   
                   // קביעת סטטוס וצבע לפי שלב נוכחי
                   String? statusText;
@@ -60,8 +60,8 @@ class TeamsScreen extends StatelessWidget {
                   String? icon;
                   
                   if (team.currentStep != null) {
-                    statusText = StepFsm.label(team.currentStep!);
-                    icon = null; // נשתמש בזה בעתיד עם StepType
+                    statusText = StepFsm.statusLabelForStep(team.currentStep!);
+                    icon = StepFsm.iconForStep(team.currentStep!);
                     statusColor = team.isRunning
                         ? Colors.green
                         : Colors.orange;

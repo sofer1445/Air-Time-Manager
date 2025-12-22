@@ -6,6 +6,7 @@ import 'package:air_time_manager/data/models/event_summary.dart';
 import 'package:air_time_manager/data/models/member.dart';
 import 'package:air_time_manager/data/models/parameters.dart';
 import 'package:air_time_manager/data/models/step.dart';
+import 'package:air_time_manager/data/models/step_type.dart';
 import 'package:air_time_manager/data/models/team.dart';
 import 'package:air_time_manager/data/repositories/air_time_repository.dart';
 import 'package:air_time_manager/services/step_fsm.dart';
@@ -93,6 +94,8 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
           'undoTimerSeconds': null,
           'currentStep': null,
           'undoStep': null,
+          'currentStepV2': null,
+          'undoStepV2': null,
         });
       }
 
@@ -519,17 +522,30 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
       final snap = await tx.get(teamRef);
       final data = snap.data() ?? const <String, dynamic>{};
 
-      final currentStepStr = data['currentStep'] as String?;
-      final currentStep = StepFsm.fromFirestore(currentStepStr);
-      final next = StepFsm.next(currentStepStr == null ? null : currentStep);
+      final currentStepV2Str = data['currentStepV2'] as String?;
+      final legacyCurrentStepStr = data['currentStep'] as String?;
+
+      final currentStep = currentStepV2Str != null
+          ? StepTypeExtension.fromJson(currentStepV2Str)
+          : _stepTypeV2FromLegacyString(legacyCurrentStepStr);
+      final next = StepFsm.nextStep(currentStep);
 
       final isRunning = (data['isRunning'] as bool?) ?? false;
       final timerSeconds = (data['timerSeconds'] as num?)?.toInt() ?? 0;
       final runningSince = data['runningSince'] as Timestamp?;
 
-      final shouldRun = StepFsm.shouldRunTimer(next);
+      final shouldRun = StepFsm.shouldRunTimerForStep(next);
 
       var nextTimerSeconds = timerSeconds;
+
+      // If the timer was already running, first "commit" elapsed time into
+      // timerSeconds before we reset runningSince for the next step.
+      if (isRunning && runningSince != null) {
+        final elapsed = DateTime.now()
+            .difference(runningSince.toDate())
+            .inSeconds;
+        nextTimerSeconds = (timerSeconds - elapsed).clamp(0, 1 << 31);
+      }
 
       if (isRunning && !shouldRun) {
         final elapsed = runningSince == null
@@ -539,8 +555,11 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
       }
 
       tx.update(teamRef, {
-        'undoStep': currentStepStr,
-        'currentStep': next != null ? StepFsm.toFirestore(next) : 'start',
+        'undoStepV2': currentStep?.toJson(),
+        'currentStepV2': next?.toJson(),
+        // Legacy fields for backward compatibility.
+        'undoStep': legacyCurrentStepStr,
+        'currentStep': _legacyStepStringFromV2(next),
         'isRunning': shouldRun,
         'runningSince': shouldRun ? FieldValue.serverTimestamp() : null,
         'timerSeconds': nextTimerSeconds,
@@ -550,11 +569,16 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
 
     // Record step + log (best-effort).
     final teamSnap = await teamRef.get();
-    final currentStepStr = teamSnap.data()?['currentStep'] as String?;
+    final stepV2Str = teamSnap.data()?['currentStepV2'] as String?;
+    final stepV2 = stepV2Str == null ? null : StepTypeExtension.fromJson(stepV2Str);
+    final legacyType = stepV2 == null
+        ? (teamSnap.data()?['currentStep'] as String?)
+        : _legacyStepStringFromV2(stepV2);
     final stepRef = _stepsCol(_defaultEventId).doc();
     await stepRef.set({
       'teamId': teamId,
-      'type': currentStepStr ?? StepFsm.toFirestore(StepFsm.next(null)!),
+      'type': legacyType ?? 'start',
+      'typeV2': stepV2?.toJson(),
       'createdAt': FieldValue.serverTimestamp(),
     });
     await _appendAirLog(teamId: teamId, note: 'advance step (mvp)');
@@ -567,21 +591,31 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
     await _firestore.runTransaction((tx) async {
       final snap = await tx.get(teamRef);
       final data = snap.data() ?? const <String, dynamic>{};
-      final undoStep = data['undoStep'] as String?;
-      if (undoStep == null) return;
+      final undoStepV2Str = data['undoStepV2'] as String?;
+      final undoLegacyStr = data['undoStep'] as String?;
+      if (undoStepV2Str == null && undoLegacyStr == null) return;
 
       final undoTimerSeconds = (data['undoTimerSeconds'] as num?)?.toInt();
-      final restoredStep = StepFsm.fromFirestore(undoStep);
-      final shouldRun = StepFsm.shouldRunTimer(restoredStep);
+      final restoredV2 = undoStepV2Str != null
+          ? StepTypeExtension.fromJson(undoStepV2Str)
+          : _stepTypeV2FromLegacyString(undoLegacyStr);
+      final shouldRun = StepFsm.shouldRunTimerForStep(restoredV2);
 
-      tx.update(teamRef, {
-        'currentStep': undoStep,
+      final update = <String, dynamic>{
+        'currentStepV2': restoredV2?.toJson(),
+        'undoStepV2': null,
+        // Legacy fields (best-effort).
+        'currentStep': _legacyStepStringFromV2(restoredV2),
         'undoStep': null,
-        'timerSeconds': undoTimerSeconds,
         'undoTimerSeconds': null,
         'isRunning': shouldRun,
         'runningSince': shouldRun ? FieldValue.serverTimestamp() : null,
-      });
+      };
+      if (undoTimerSeconds != null) {
+        update['timerSeconds'] = undoTimerSeconds;
+      }
+
+      tx.update(teamRef, update);
     });
 
     await _appendAirLog(teamId: teamId, note: 'undo step (mvp)');
@@ -650,6 +684,8 @@ class FirestoreAirTimeRepository implements AirTimeRepository {
       'undoTimerSeconds': null,
       'currentStep': null,
       'undoStep': null,
+      'currentStepV2': null,
+      'undoStepV2': null,
     });
   }
 
@@ -739,13 +775,35 @@ EventStepType _stepTypeFromString(String value) {
   };
 }
 
+StepType? _stepTypeV2FromLegacyString(String? value) {
+  return switch (value) {
+    'start' => StepType.entry,
+    'arrive' => StepType.arrival,
+    'exit' => StepType.exit,
+    'washing' => StepType.washStart,
+    null => null,
+    _ => StepType.entry,
+  };
+}
+
+String? _legacyStepStringFromV2(StepType? step) {
+  return switch (step) {
+    null => null,
+    StepType.entry => 'start',
+    StepType.arrival => 'arrive',
+    StepType.exit => 'exit',
+    StepType.washStart => 'washing',
+    StepType.washEnd => 'washing',
+  };
+}
+
 class _TeamDoc {
   final String id;
   final String name;
   final int timerSeconds;
   final bool isRunning;
   final DateTime? runningSince;
-  final EventStepType? currentStep;
+  final StepType? currentStep;
 
   const _TeamDoc({
     required this.id,
@@ -772,29 +830,37 @@ class _TeamDoc {
 
   static _TeamDoc fromQueryDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
     final data = d.data();
-    final currentStepStr = data['currentStep'] as String?;
+    final currentStepV2Str = data['currentStepV2'] as String?;
+    final legacyCurrentStepStr = data['currentStep'] as String?;
+
+    final step = currentStepV2Str != null
+        ? StepTypeExtension.fromJson(currentStepV2Str)
+        : _stepTypeV2FromLegacyString(legacyCurrentStepStr);
     return _TeamDoc(
       id: d.id,
       name: (data['name'] as String?) ?? 'צוות',
       timerSeconds: (data['timerSeconds'] as num?)?.toInt() ?? 0,
       isRunning: (data['isRunning'] as bool?) ?? false,
       runningSince: (data['runningSince'] as Timestamp?)?.toDate(),
-      currentStep:
-          currentStepStr == null ? null : StepFsm.fromFirestore(currentStepStr),
+      currentStep: step,
     );
   }
 
   static _TeamDoc fromSnapshotDoc(DocumentSnapshot<Map<String, dynamic>> d) {
     final data = d.data() ?? const <String, dynamic>{};
-    final currentStepStr = data['currentStep'] as String?;
+    final currentStepV2Str = data['currentStepV2'] as String?;
+    final legacyCurrentStepStr = data['currentStep'] as String?;
+
+    final step = currentStepV2Str != null
+        ? StepTypeExtension.fromJson(currentStepV2Str)
+        : _stepTypeV2FromLegacyString(legacyCurrentStepStr);
     return _TeamDoc(
       id: d.id,
       name: (data['name'] as String?) ?? 'צוות',
       timerSeconds: (data['timerSeconds'] as num?)?.toInt() ?? 0,
       isRunning: (data['isRunning'] as bool?) ?? false,
       runningSince: (data['runningSince'] as Timestamp?)?.toDate(),
-      currentStep:
-          currentStepStr == null ? null : StepFsm.fromFirestore(currentStepStr),
+      currentStep: step,
     );
   }
 

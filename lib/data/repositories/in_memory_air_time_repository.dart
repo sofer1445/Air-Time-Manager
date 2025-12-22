@@ -6,6 +6,7 @@ import 'package:air_time_manager/data/models/event_summary.dart';
 import 'package:air_time_manager/data/models/member.dart';
 import 'package:air_time_manager/data/models/parameters.dart';
 import 'package:air_time_manager/data/models/step.dart';
+import 'package:air_time_manager/data/models/step_type.dart';
 import 'package:air_time_manager/data/models/team.dart';
 import 'package:air_time_manager/data/repositories/air_time_repository.dart';
 import 'package:air_time_manager/services/step_fsm.dart';
@@ -514,8 +515,8 @@ class InMemoryAirTimeRepository implements AirTimeRepository {
     );
     _undoStepSnapshotByTeamId[teamId] = snapshot;
 
-    final nextStep = StepFsm.next(team.currentStep);
-    final shouldRun = StepFsm.shouldRunTimer(nextStep);
+    final StepType nextStep = StepFsm.nextStep(team.currentStep)!;
+    final shouldRun = StepFsm.shouldRunTimerForStep(nextStep);
 
     _teams[index] = Team(
       id: team.id,
@@ -525,18 +526,27 @@ class InMemoryAirTimeRepository implements AirTimeRepository {
       currentStep: nextStep,
     );
 
+    EventStepType legacyTypeForStep(StepType step) {
+      return switch (step) {
+        StepType.entry => EventStepType.start,
+        StepType.arrival => EventStepType.arrive,
+        StepType.exit => EventStepType.exit,
+        StepType.washStart || StepType.washEnd => EventStepType.washing,
+      };
+    }
+
     _steps.add(
       EventStep(
         id: 's$_stepSeq',
         eventId: _currentEvent.id,
         teamId: teamId,
-        type: nextStep!,
+        type: legacyTypeForStep(nextStep),
         createdAt: DateTime.now(),
       ),
     );
     _stepSeq++;
 
-    _appendAirLog(teamId: teamId, note: 'צעד: ${StepFsm.label(nextStep!)}');
+    _appendAirLog(teamId: teamId, note: 'צעד: ${nextStep.displayName}');
 
     _emitTeams();
     _membersController.add(List.unmodifiable(_members));
@@ -774,7 +784,7 @@ class InMemoryAirTimeRepository implements AirTimeRepository {
 class _TeamStepSnapshot {
   final Duration teamTimer;
   final bool isRunning;
-  final EventStepType? currentStep;
+  final StepType? currentStep;
   final Map<String, Duration> memberRemainingById;
 
   const _TeamStepSnapshot({

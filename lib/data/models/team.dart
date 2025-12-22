@@ -1,11 +1,11 @@
-import 'package:air_time_manager/data/models/step.dart';
+import 'package:air_time_manager/data/models/step_type.dart';
 
 class Team {
   final String id;
   final String name;
   final Duration timer;
   final bool isRunning;
-  final EventStepType? currentStep;
+  final StepType? currentStep;
 
   const Team({
     required this.id,
